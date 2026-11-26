@@ -11,9 +11,10 @@ import (
 
 func (s *Screen) run(ctx context.Context, cancel context.CancelFunc, out <-chan contract.ChatMessage) {
 	defer cancel()
+	feedback := "Chat disconnected. Select Join room to try again."
 	defer s.queue(ctx, func() {
 		s.room = ""
-		s.feedback.SetText("Chat disconnected. Select Join room to try again.")
+		s.feedback.SetText(feedback)
 		if s.connection != nil {
 			s.connection("Disconnected")
 		}
@@ -22,8 +23,13 @@ func (s *Screen) run(ctx context.Context, cancel context.CancelFunc, out <-chan 
 	dialer := websocket.Dialer{HandshakeTimeout: 5 * time.Second, Proxy: http.ProxyFromEnvironment}
 	conn, response, err := dialer.DialContext(ctx, s.url, header)
 	if err != nil {
-		if response != nil && response.Body != nil {
-			response.Body.Close()
+		if response != nil {
+			if response.StatusCode == http.StatusUnauthorized {
+				feedback = "Sign in again to use chat."
+			}
+			if response.Body != nil {
+				response.Body.Close()
+			}
 		}
 		return
 	}

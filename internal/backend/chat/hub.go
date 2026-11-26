@@ -27,13 +27,14 @@ func New() *Hub {
 	return &Hub{rooms: make(map[*client]string), upgrader: websocket.Upgrader{HandshakeTimeout: 3 * time.Second}}
 }
 
-func (h *Hub) Handle(w http.ResponseWriter, r *http.Request, username string) {
+func (h *Hub) Handle(w http.ResponseWriter, r *http.Request, user contract.Identity) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	conn.SetReadLimit(4096)
-	c := &client{conn: conn, username: username, out: make(chan contract.ChatMessage, 16)}
+	conn.SetReadDeadline(user.ExpiresAt)
+	c := &client{conn: conn, username: user.Username, out: make(chan contract.ChatMessage, 16)}
 	h.mu.Lock()
 	if h.closed {
 		h.mu.Unlock()
@@ -46,7 +47,7 @@ func (h *Hub) Handle(w http.ResponseWriter, r *http.Request, username string) {
 	go h.write(c)
 	for {
 		var msg contract.ChatMessage
-		if err := conn.ReadJSON(&msg); err != nil {
+		if err := conn.ReadJSON(&msg); err != nil || !user.ExpiresAt.After(time.Now()) {
 			return
 		}
 		h.handleMessage(c, msg)

@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"time"
 
 	"github.com/anhang204/Netcentric_Project/internal/contract"
 )
+
+var errAuthRejected = errors.New("progress authentication rejected")
 
 // RunTCP runs in a background goroutine for the lifetime of the login session.
 func (s *Screen) RunTCP(address string) {
@@ -19,6 +22,15 @@ func (s *Screen) RunTCP(address string) {
 			s.queue(func() { s.connection("Connecting") })
 		}
 		err := s.receive(address)
+		if errors.Is(err, errAuthRejected) {
+			s.queue(func() {
+				if s.connection != nil {
+					s.connection("Sign in again")
+				}
+				s.feedback.SetText("Sign in again to receive progress updates.")
+			})
+			return
+		}
 		s.queue(func() {
 			if s.connection != nil {
 				s.connection("Disconnected")
@@ -51,8 +63,14 @@ func (s *Screen) receive(address string) error {
 	frames := bufio.NewReaderSize(conn, 8192)
 	line, err := frames.ReadSlice('\n')
 	var auth contract.TCPAuth
-	if err != nil || json.Unmarshal(line, &auth) != nil || auth.Type != "auth_ok" {
+	if err != nil || json.Unmarshal(line, &auth) != nil {
 		return fmt.Errorf("TCP authentication failed")
+	}
+	if auth.Type == "auth_rejected" {
+		return errAuthRejected
+	}
+	if auth.Type != "auth_ok" {
+		return fmt.Errorf("unexpected TCP authentication reply")
 	}
 	conn.SetDeadline(time.Time{})
 	if s.connection != nil {

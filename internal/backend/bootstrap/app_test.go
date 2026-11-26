@@ -26,6 +26,8 @@ import (
 
 type testCatalog struct{}
 
+const testSecret = "synthetic-test-secret-with-32-bytes-only"
+
 func (testCatalog) GetManga(_ context.Context, id string) (contract.Manga, error) {
 	if id == "one-piece" {
 		return contract.Manga{ID: id, Title: "One Piece", TotalChapters: 30}, nil
@@ -34,10 +36,25 @@ func (testCatalog) GetManga(_ context.Context, id string) (contract.Manga, error
 }
 
 type fixture struct {
-	t       *testing.T
-	baseURL string
-	tcpAddr string
-	close   func()
+	t           *testing.T
+	baseURL     string
+	tcpAddr     string
+	connections <-chan net.Conn
+	close       func()
+}
+
+// Record each accepted socket so a test can simulate an interrupted connection.
+type observedListener struct {
+	net.Listener
+	connections chan net.Conn
+}
+
+func (l *observedListener) Accept() (net.Conn, error) {
+	conn, err := l.Listener.Accept()
+	if err == nil {
+		l.connections <- conn
+	}
+	return conn, err
 }
 
 func start(t *testing.T, path string, catalog library.Catalog) *fixture {
@@ -48,7 +65,7 @@ func start(t *testing.T, path string, catalog library.Catalog) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	tokens, err := accounts.NewTokens("synthetic-test-secret-with-32-bytes-only")
+	tokens, err := accounts.NewTokens(testSecret)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +74,8 @@ func start(t *testing.T, path string, catalog library.Catalog) *fixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	go app.Progress.Serve(listener)
+	observed := &observedListener{Listener: listener, connections: make(chan net.Conn, 32)}
+	go app.Progress.Serve(observed)
 	httpServer := httptest.NewServer(app.Router)
 	closeServers := func() {
 		listener.Close()
@@ -66,7 +84,7 @@ func start(t *testing.T, path string, catalog library.Catalog) *fixture {
 		db.Close()
 	}
 	t.Cleanup(closeServers)
-	return &fixture{t: t, baseURL: httpServer.URL, tcpAddr: listener.Addr().String(), close: closeServers}
+	return &fixture{t: t, baseURL: httpServer.URL, tcpAddr: listener.Addr().String(), connections: observed.connections, close: closeServers}
 }
 
 func (f *fixture) request(method, path, token string, payload any, want int, output any) {

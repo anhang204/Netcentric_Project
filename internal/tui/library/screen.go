@@ -22,6 +22,7 @@ type Screen struct {
 	view  *tview.Flex
 
 	list         *tview.List
+	form         *tview.Form
 	chapter      *tview.InputField
 	status       *tview.DropDown
 	feedback     *tview.TextView
@@ -43,20 +44,20 @@ func NewScreen(app *tview.Application, ctx context.Context, api *contract.HTTPCl
 	s.chapter = tview.NewInputField().SetLabel("Current chapter").SetFieldWidth(12)
 	s.status = tview.NewDropDown().SetLabel("Status").SetOptions([]string{contract.PlanToRead, contract.Reading, contract.Completed}, nil)
 	s.status.SetCurrentOption(0)
-	form := tview.NewForm().AddFormItem(s.chapter).AddFormItem(s.status)
-	form.AddButton("Save progress", s.save)
-	form.SetCancelFunc(func() { app.SetFocus(s.list) })
-	form.SetBorder(true).SetTitle(" Reading Progress ")
+	s.form = tview.NewForm().AddFormItem(s.chapter).AddFormItem(s.status)
+	s.form.AddButton("Save progress", s.save)
+	s.form.SetCancelFunc(func() { app.SetFocus(s.list) })
+	s.form.SetBorder(true).SetTitle(" Reading Progress ")
 	s.list.SetInputCapture(func(key *tcell.EventKey) *tcell.EventKey {
 		if s.selectedID() != "" && (key.Key() == tcell.KeyTab || key.Key() == tcell.KeyEnter) {
 			s.selectItem(s.list.GetCurrentItem())
-			app.SetFocus(form)
+			app.SetFocus(s.form)
 			return nil
 		}
 		return key
 	})
 	s.view = tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(tview.NewFlex().AddItem(s.list, 0, 1, true).AddItem(form, 0, 1, false), 0, 1, true).
+		AddItem(tview.NewFlex().AddItem(s.list, 0, 1, true).AddItem(s.form, 0, 1, false), 0, 1, true).
 		AddItem(s.feedback, 3, 0, false)
 	s.feedback.SetText("Select a manga and press Enter to edit. Esc returns to the list.")
 	return s
@@ -167,7 +168,7 @@ func (s *Screen) drawList() {
 	}
 	s.list.SetCurrentItem(active)
 	s.refreshingUI = false
-	if selected == "" {
+	if selected == "" || !s.form.HasFocus() {
 		s.selectItem(active)
 	}
 }

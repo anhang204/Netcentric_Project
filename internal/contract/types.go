@@ -1,12 +1,16 @@
 package contract
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Identity comes from a verified login token, never from a request body.
 type Identity struct {
 	UserID    int64
 	Username  string
 	SessionID string
+	ExpiresAt time.Time
 }
 
 type Credentials struct {

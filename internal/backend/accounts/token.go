@@ -59,5 +59,7 @@ func (t *Tokens) Verify(encoded string) (contract.Identity, error) {
 	if err != nil || userID < 1 || data.Username == "" || data.SessionID == "" {
 		return contract.Identity{}, errors.New("invalid login identity")
 	}
-	return contract.Identity{UserID: userID, Username: data.Username, SessionID: data.SessionID}, nil
+	return contract.Identity{
+		UserID: userID, Username: data.Username, SessionID: data.SessionID, ExpiresAt: data.ExpiresAt.Time,
+	}, nil
 }

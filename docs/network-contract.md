@@ -6,7 +6,7 @@ These are the interfaces between An's backend and screens and Vy's catalog, UDP 
 
 - Vy's catalog adapter implements `library.Catalog` with `GetManga(context.Context, string) (contract.Manga, error)`. The input string is the stable manga ID. Apply the RPC timeout in the adapter. Map invalid IDs, missing records and unavailable or timed-out RPCs to `contract.ErrInvalidCatalogInput`, `contract.ErrMangaNotFound` and `contract.ErrCatalogUnavailable` respectively. Wrapped errors are accepted.
 - An passes the adapter as the third argument of `bootstrap.New(db, tokens, catalog)` in `cmd/backend/main.go`. Give An the discovery and release route registration functions and the UDP start/stop functions. An mounts them on `app.Router` and wires the UDP lifecycle. The backend already serves `/api/health`, auth, library and `/ws`.
-- Use `tokens.RequireUser()` for a protected Gin route, `accounts.User(c)` inside that route, and `tokens.Verify(token)` for UDP. The verified identity has a user ID and a new session ID for every login. The library looks up the manga through gRPC for new entries and chapter changes. A status-only update needs only backend SQLite.
+- Use `tokens.RequireUser()` for a protected Gin route, `accounts.User(c)` inside that route, and `tokens.Verify(token)` for UDP. The verified identity has a user ID, a new session ID for every login and JWT expiration time in `ExpiresAt`. The library looks up the manga through gRPC for new entries and chapter changes. A status-only update needs only backend SQLite.
 - Errors use `{"error":{"code":"code","message":"Readable message."}}`. Manga records share `contract.Manga`. Vy owns the Protobuf definitions and generated code. Use the scheduled UDP `subscribe`, `unsubscribe`, `subscribed` and `new_chapter` messages. Send each message in one datagram and use the sender's actual source address for registration.
 
 ## Using An's TUI screens
@@ -18,6 +18,6 @@ These are the interfaces between An's backend and screens and Vy's catalog, UDP 
 
 ## Messages owned by An
 
-TCP starts with `{"type":"auth","token":"<jwt>"}` and replies `{"type":"auth_ok"}`. Each object ends with a newline. An example event is `{"type":"progress_updated","manga_id":"one-piece","chapter":12,"status":"reading","updated_at":"2026-11-26T10:00:00Z","version":2}`. Only other logins of the same account receive it.
+TCP starts with `{"type":"auth","token":"<jwt>"}` and replies `{"type":"auth_ok"}`. An invalid or expired token receives `{"type":"auth_rejected"}`. Each object ends with a newline. An example event is `{"type":"progress_updated","manga_id":"one-piece","chapter":12,"status":"reading","updated_at":"2026-11-26T10:00:00Z","version":2}`. Only other logins of the same account receive it. TCP and WebSocket sessions close when their JWT expires. The user then signs in again.
 
 WebSocket uses `GET /ws` with `Authorization: Bearer <jwt>`. Send `{"type":"join","room":"general"}` and wait for `{"type":"joined","room":"general"}`. Send `{"type":"chat","room":"general","text":"Hello"}`. The hub fills in `sender` using the login token and returns chat to that room. An invalid action returns a message with `type` equal to `error` and a readable `text` field.

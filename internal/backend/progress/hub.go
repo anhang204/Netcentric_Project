@@ -57,9 +57,11 @@ func (h *Hub) read(client *session) {
 	}
 	user, err := h.verify(auth.Token)
 	if err != nil {
+		client.conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		json.NewEncoder(client.conn).Encode(contract.TCPAuth{Type: "auth_rejected"})
 		return
 	}
-	client.conn.SetReadDeadline(time.Time{})
+	client.conn.SetReadDeadline(user.ExpiresAt)
 	h.mu.Lock()
 	client.user = user
 	h.mu.Unlock()
@@ -90,8 +92,9 @@ func (h *Hub) Publish(origin contract.Identity, entry contract.LibraryEntry) {
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	now := time.Now()
 	for client := range h.sessions {
-		if client.user.UserID != origin.UserID || client.user.SessionID == origin.SessionID {
+		if client.user.UserID != origin.UserID || client.user.SessionID == origin.SessionID || !client.user.ExpiresAt.After(now) {
 			continue
 		}
 		select {

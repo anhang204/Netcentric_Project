@@ -32,7 +32,7 @@ func New(db *sql.DB, tokens *accounts.Tokens, catalog library.Catalog) *App {
 	router.POST("/api/library", tokens.RequireUser(), libraryRoutes.Add)
 	router.PUT("/api/library/:mangaId/progress", tokens.RequireUser(), libraryRoutes.Update)
 	router.GET("/ws", tokens.RequireUser(), func(c *gin.Context) {
-		app.chat.Handle(c.Writer, c.Request, accounts.User(c).Username)
+		app.chat.Handle(c.Writer, c.Request, accounts.User(c))
 	})
 	router.NoRoute(func(c *gin.Context) {
 		httpjson.Error(c, http.StatusNotFound, "route_not_found", "That endpoint does not exist.")
