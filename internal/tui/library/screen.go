@@ -31,6 +31,8 @@ type Screen struct {
 	titles       map[string]string
 	ids          []string
 	refreshingUI bool
+	formBase     contract.LibraryEntry
+	saving       bool
 }
 
 func NewScreen(app *tview.Application, ctx context.Context, api *contract.HTTPClient, token string, connection func(string)) *Screen {
@@ -88,30 +90,57 @@ func (s *Screen) Add(manga contract.Manga, done func(error)) {
 }
 
 func (s *Screen) save() {
+	if s.saving {
+		return
+	}
 	id := s.selectedID()
 	if id == "" {
 		s.feedback.SetText("Select a manga from your library first.")
 		return
 	}
-	chapter, err := strconv.Atoi(strings.TrimSpace(s.chapter.GetText()))
+	chapterText := s.chapter.GetText()
+	chapter, err := strconv.Atoi(strings.TrimSpace(chapterText))
 	if err != nil || chapter < 0 {
 		s.feedback.SetText("Enter a whole chapter number of zero or higher.")
 		return
 	}
 	_, status := s.status.GetCurrentOption()
-	input := contract.UpdateProgressRequest{CurrentChapter: &chapter, Status: &status}
+	base := s.formBase
+	var input contract.UpdateProgressRequest
+	// Save only edited fields so another session's changes to the other field survive.
+	if chapter != base.CurrentChapter {
+		input.CurrentChapter = &chapter
+	}
+	if status != base.Status {
+		input.Status = &status
+	}
+	if input.CurrentChapter == nil && input.Status == nil {
+		s.selectItem(s.list.GetCurrentItem())
+		s.feedback.SetText("No changes to save.")
+		return
+	}
+	s.saving = true
 	s.feedback.SetText("Saving…")
 	go func() {
 		var entry contract.LibraryEntry
 		path := "/api/library/" + url.PathEscape(id) + "/progress"
 		err := s.api.Do(s.ctx, http.MethodPut, path, s.token, input, &entry)
 		s.queue(func() {
+			s.saving = false
 			if err != nil {
 				s.feedback.SetText(err.Error())
 				return
 			}
 			if s.accept(entry) {
 				s.drawList()
+			}
+			if s.formBase == base {
+				s.formBase.CurrentChapter = chapter
+				s.formBase.Status = status
+				_, currentStatus := s.status.GetCurrentOption()
+				if s.chapter.GetText() == chapterText && currentStatus == status {
+					s.selectItem(s.list.GetCurrentItem())
+				}
 			}
 			s.feedback.SetText("Progress saved.")
 		})
@@ -186,6 +215,7 @@ func (s *Screen) selectItem(index int) {
 		return
 	}
 	entry := s.entries[s.ids[index]]
+	s.formBase = entry
 	s.chapter.SetText(strconv.Itoa(entry.CurrentChapter))
 	switch entry.Status {
 	case contract.Reading:

@@ -2,6 +2,9 @@ package bootstrap_test
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -113,7 +116,7 @@ func TestLibraryScreenDisplaysTCPPush(t *testing.T) {
 		t.Fatal("Enter did not move keyboard focus to the progress form")
 	}
 	app.QueueUpdate(func() { chapter.SetText("17") })
-	f.request(http.MethodPut, "/api/library/one-piece/progress", origin, gin.H{"current_chapter": 13}, 200, nil)
+	f.request(http.MethodPut, "/api/library/one-piece/progress", origin, gin.H{"current_chapter": 13, "status": contract.Reading}, 200, nil)
 	if !visibleChapter("Chapter 13") {
 		t.Fatal("TCP update did not reach the list during editing")
 	}
@@ -130,12 +133,31 @@ func TestLibraryScreenDisplaysTCPPush(t *testing.T) {
 	if len(saved.Items) != 1 || saved.Items[0].CurrentChapter != 17 {
 		t.Fatalf("the TUI chapter was not stored in SQLite: %+v", saved.Items)
 	}
+	if saved.Items[0].Status != contract.Reading {
+		t.Fatalf("saving only the chapter overwrote the other session's status: %+v", saved.Items[0])
+	}
+	feedback := root.GetItem(1).(*tview.TextView)
+	status := form.GetFormItem(1).(*tview.DropDown)
+	app.QueueUpdate(func() {
+		status.SetCurrentOption(2) // Completed.
+		app.SetFocus(form.GetButton(0))
+	})
+	f.request(http.MethodPut, "/api/library/one-piece/progress", origin, gin.H{"current_chapter": 18}, 200, nil)
+	if !visibleChapter("Chapter 18") {
+		t.Fatal("TCP update did not reach the list while editing the status")
+	}
+	pressKeys(app, tcell.KeyEnter)
+	waitForText(t, app, feedback, "Progress saved.")
+	f.request(http.MethodGet, "/api/library", origin, nil, http.StatusOK, &saved)
+	if len(saved.Items) != 1 || saved.Items[0].CurrentChapter != 18 || saved.Items[0].Status != contract.Completed {
+		t.Fatalf("saving only the status overwrote the other session's chapter: %+v", saved.Items)
+	}
 	serverSocket := <-f.connections
 	serverSocket.Close()
 	waitForConnection("Disconnected")
-	f.request(http.MethodPut, "/api/library/one-piece/progress", origin, gin.H{"current_chapter": 18}, 200, nil)
+	f.request(http.MethodPut, "/api/library/one-piece/progress", origin, gin.H{"current_chapter": 19}, 200, nil)
 	waitForConnection("Connected")
-	if !visibleChapter("Chapter 18") {
+	if !visibleChapter("Chapter 19") {
 		t.Fatal("reconnected TUI did not retrieve the chapter saved during the interruption")
 	}
 }
@@ -228,6 +250,68 @@ func TestChatScreenJoinsAndExchangesMessages(t *testing.T) {
 	}
 	writeChat(t, bob, contract.ChatMessage{Type: "chat", Room: "general", Text: "Hello Alice"})
 	waitForText(t, app, transcript, "bob: Hello Alice")
+}
+
+func TestLibraryScreenAddsAndSwitchesAccounts(t *testing.T) {
+	f := start(t, filepath.Join(t.TempDir(), "users.db"), testCatalog{})
+	f.register("alice")
+	f.register("bob")
+	aliceToken, bobToken := f.login("alice"), f.login("bob")
+	app := tview.NewApplication()
+	api := contract.NewHTTPClient(f.baseURL)
+	aliceCtx, cancelAlice := context.WithCancel(context.Background())
+	bobCtx, cancelBob := context.WithCancel(context.Background())
+	defer cancelAlice()
+	connected := make(chan struct{}, 1)
+	alice := libraryui.NewScreen(app, aliceCtx, api, aliceToken, func(state string) {
+		if state == "Connected" {
+			connected <- struct{}{}
+		}
+	})
+	runTerminal(t, app, alice.View(), cancelBob)
+	go alice.RunTCP(f.tcpAddr)
+	select {
+	case <-connected:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Alice's TCP connection was not established")
+	}
+	aliceSocket := <-f.connections
+	added := make(chan error, 1)
+	app.QueueUpdate(func() {
+		alice.Add(contract.Manga{ID: "one-piece", Title: "One Piece"}, func(err error) { added <- err })
+	})
+	select {
+	case err := <-added:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the discovery add callback did not finish")
+	}
+	aliceView := alice.View().(*tview.Flex)
+	waitForText(t, app, aliceView.GetItem(1).(*tview.TextView), "Added to library.")
+	cancelAlice()
+	bob := libraryui.NewScreen(app, bobCtx, api, bobToken, nil)
+	app.QueueUpdateDraw(func() { app.SetRoot(bob.View(), true) })
+	go bob.RunTCP(f.tcpAddr)
+	bobView := bob.View().(*tview.Flex)
+	waitForText(t, app, bobView.GetItem(1).(*tview.TextView), "Your library is empty.")
+	f.request(http.MethodPut, "/api/library/one-piece/progress", aliceToken, gin.H{"current_chapter": 3}, 200, nil)
+	var bobCount int
+	app.QueueUpdate(func() {
+		bobCount = bobView.GetItem(0).(*tview.Flex).GetItem(0).(*tview.List).GetItemCount()
+	})
+	if bobCount != 0 {
+		t.Fatal("Alice's library leaked into Bob's TUI")
+	}
+	err := aliceSocket.SetReadDeadline(time.Now().Add(time.Second))
+	if err == nil {
+		var one [1]byte
+		_, err = aliceSocket.Read(one[:])
+	}
+	if !errors.Is(err, net.ErrClosed) && !errors.Is(err, io.EOF) {
+		t.Fatalf("expected Alice's TCP socket to close after logout, got %v", err)
+	}
 }
 
 func TestConcurrentProgressKeepsIncreasingVersions(t *testing.T) {

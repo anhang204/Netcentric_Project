@@ -18,10 +18,11 @@ The tests use real local HTTP, TCP and WebSocket traffic with a test-only catalo
 
 | Check | Observed result |
 | --- | --- |
-| `TestAccountsLibraryAndRestart` | The correct password logged in and the wrong password returned `401`. Duplicate registration returned `409`. Another account received an empty library. Chapter 30, status `completed` and version 3 survived reopening the database. |
+| `TestAccountsLibraryAndRestart` | The correct password logged in and the wrong password returned `401`. Duplicate registration returned `409`. Another account received an empty library. Chapter 30, status `completed` and version 3 survived reopening the database. With the catalog offline, a chapter change returned `503` and a status-only update preserved chapter 30. |
 | `TestProgressReachesOnlySiblingTCP` | Auth sent in two pieces was accepted. The sibling got chapter 7 and version 2. The originating session and other account received no event. A chapter above the test catalog total produced `400` and no event. |
 | `TestWebSocketRoomsAndDisconnect` | A message reached both users in `general`, with Alice as the verified sender. The separate room saw its own message. Chat still delivered after Bob disconnected. |
-| `TestLibraryScreenDisplaysTCPPush` | The `tview` list and idle form changed from chapter 0 to chapter 12. Enter opened the form. A subsequent TCP update left the active edit intact, and a keyboard save persisted it. After interrupting TCP, the reconnected screen recovered the saved chapter. |
+| `TestLibraryScreenDisplaysTCPPush` | The `tview` list and idle form changed from chapter 0 to chapter 12. Enter opened the form. A chapter-only save preserved another session's status change, and a status-only save preserved another session's chapter change. After interrupting TCP, the reconnected screen recovered the saved chapter. |
+| `TestLibraryScreenAddsAndSwitchesAccounts` | The discovery callback added a manga to Alice's library. Switching to Bob closed Alice's TCP connection, and Bob's screen showed an empty library even after Alice saved another chapter. |
 | `TestAccountScreenRegistersAndLogsIn` | Keyboard input submitted the registration and login forms over HTTP. The login callback supplied a JWT accepted by the backend. |
 | `TestChatScreenJoinsAndExchangesMessages` | Keyboard input joined `general` and sent a message to Bob over WebSocket. Bob's reply appeared in the discussion transcript. |
 | `TestExpiredLoginCannotKeepSocketsOpen` | The backend closed the already-open TCP and WebSocket sessions at expiry. HTTP and WebSocket upgrades returned `401`, and a fresh TCP connection received `auth_rejected` for the expired token. |
@@ -34,6 +35,8 @@ The standalone backend build also started twice with the same SQLite file on Win
 A default `bufio.Scanner` treats a final JSON fragment followed by EOF as a line even when it has no newline. A small Go probe reproduced this with `{"type":"auth"}` and confirmed that `ReadSlice('\n')` returned EOF for the same input. The TCP code now requires the newline before decoding. `TestProgressReachesOnlySiblingTCP` verifies that an auth frame with no newline receives no acknowledgment while a valid frame split across writes succeeds.
 
 A repeat audit reproduced two additional issues. The library list showed chapter 12 from TCP while the idle form still showed chapter 0. The form now takes the selected row's value while idle and preserves input while the form has keyboard focus. The socket expiry test also showed both transports staying open past the token expiry while HTTP returned `401`. Both socket readers now use the verified expiration timestamp as a read deadline and clean up at expiration.
+
+The concurrent edit check reproduced a lost status update. One TUI opened the progress form, a second session set the manga to `reading`, and the first TUI saved only a new chapter. Sending both fields changed the status back to `plan-to-read`. The form now compares its inputs with the values loaded when editing began and sends only the edited fields. SQLite keeps the other field. The retest covers both chapter-only and status-only edits.
 
 ## AI use record for the report
 

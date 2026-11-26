@@ -182,6 +182,11 @@ func TestAccountsLibraryAndRestart(t *testing.T) {
 		t.Fatalf("wrong persisted library: %+v", saved.Items)
 	}
 	f.request(http.MethodPut, progressPath, alice, gin.H{"current_chapter": 29}, 503, nil)
+	var statusOnly contract.LibraryEntry
+	f.request(http.MethodPut, progressPath, alice, gin.H{"status": contract.Reading}, 200, &statusOnly)
+	if statusOnly.Status != contract.Reading || statusOnly.CurrentChapter != 30 || statusOnly.Version != 4 {
+		t.Fatalf("status-only update should preserve progress with catalog offline: %+v", statusOnly)
+	}
 	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
