@@ -16,6 +16,10 @@ These are the interfaces between An's backend and screens and Vy's catalog, UDP 
 - Start `go libraryScreen.RunTCP(tcpAddr)` once per login. It loads the current library, listens for progress and reloads once after a connection is established or restored. From the discovery screen, call `libraryScreen.Add(selectedManga, onResult)` on the TUI event loop. `onResult(error)` receives the result on that loop too. A successful add updates My Library, using the title supplied in `selectedManga` and falling back to IDs on a later login.
 - Cancel the session context on logout, then replace its pages. Cancel the app context before leaving the TUI. Build new screen instances for the next login. My Library uses Enter or Tab to edit and Esc to return to the list. Chat connects when the user selects Join room.
 
+## Address configuration for two devices
+
+In the integrated app, the backend uses `API_ADDR`, `TCP_ADDR` and `UDP_ADDR` as listen addresses. The TUI reads the same environment keys as remote addresses in its own process. For the two-device demo, set them to An's reachable LAN address on both TUI instances. Derive the WebSocket URL from `API_ADDR`. Use `UDP_ADDR` as the registration destination and bind a separate local UDP socket with an OS-assigned port per TUI. `CATALOG_ADDR` is used by the backend and catalog processes on An's device. See the [two-device run guide](../README.md#demo-on-two-devices).
+
 ## Messages owned by An
 
 TCP starts with `{"type":"auth","token":"<jwt>"}` and replies `{"type":"auth_ok"}`. An invalid or expired token receives `{"type":"auth_rejected"}`. Each object ends with a newline. An example event is `{"type":"progress_updated","manga_id":"one-piece","chapter":12,"status":"reading","updated_at":"2026-11-26T10:00:00Z","version":2}`. Only other logins of the same account receive it. TCP and WebSocket sessions close when their JWT expires. The user then signs in again.

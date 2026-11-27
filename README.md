@@ -18,6 +18,40 @@ The default addresses are HTTP and WebSocket at `127.0.0.1:8080`, TCP at `127.0.
 
 After integration, start `go run ./cmd/catalog`, then `go run ./cmd/backend`, then one or more `go run ./cmd/tui` processes. See [the network contract](docs/network-contract.md) for the current backend and TUI handoffs.
 
+## Demo on two devices
+
+After integration, connect An's and Vy's devices to the same private Wi-Fi or hotspot. On An's device, run `ipconfig` and find the IPv4 address of the adapter on that network. Replace `192.168.1.20` below with that address.
+
+Start the catalog on An's device at `127.0.0.1:9092` with `go run ./cmd/catalog`. In a second terminal on An's device, start the backend with these settings:
+
+```powershell
+$demoHost = '192.168.1.20'
+$env:API_ADDR = "${demoHost}:8080"
+$env:TCP_ADDR = "${demoHost}:9090"
+$env:UDP_ADDR = "${demoHost}:9091"
+$env:CATALOG_ADDR = '127.0.0.1:9092'
+$env:JWT_SECRET = [guid]::NewGuid().ToString('N')
+$env:ADMIN_DEMO_KEY = [guid]::NewGuid().ToString('N')
+go run ./cmd/backend
+```
+
+Open a TUI terminal on each device. Use An's address in both terminals:
+
+```powershell
+$demoHost = '192.168.1.20'
+$env:API_ADDR = "${demoHost}:8080"
+$env:TCP_ADDR = "${demoHost}:9090"
+$env:UDP_ADDR = "${demoHost}:9091"
+Invoke-RestMethod "http://${demoHost}:8080/api/health"
+go run ./cmd/tui
+```
+
+Check `/api/health` from Vy's device before the demo. If the request fails, check the IP, whether the devices can reach each other on the network, and whether inbound TCP `8080` and `9090` and UDP `9091` are allowed on An's private network. Catalog gRPC stays on An's device.
+
+1. Log in as the same synthetic account on both devices. Find and add a manga, change its chapter on An's TUI, and show the update on Vy's TUI.
+2. Subscribe to UDP alerts on both devices and trigger a release from the backend's admin/demo flow. Show the notification on each device.
+3. Log Vy into a different synthetic account and join the same chat room from both devices. Exchange messages. Use a third TUI session on either device for the separate-account and separate-room checks.
+
 ## Verify An's work
 
 ```powershell

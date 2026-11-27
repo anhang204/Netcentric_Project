@@ -1,5 +1,24 @@
 # An's backend and TUI notes
 
+## Technical report handoff
+
+The student specification, section 7 on pages 6–7, asks for one English `REPORT.pdf` with about 4–5 pages of main content, excluding the cover, references and brief appendices. Keep the whole PDF within the team's 20-page limit. The [README](../../README.md#demo-on-two-devices) holds the run commands. Use report space to explain design choices, verification and limitations.
+
+| Section | What to review before submission |
+| --- | --- |
+| 1. System Architecture | Use one labeled diagram with the TUI, Gin, the HTTP/TCP/UDP/WebSocket paths, the separate gRPC catalog process and both SQLite owners. Show the placement of clients and services for the two-device demo. Match the labels and ports to the final run. |
+| 2. Why These Technologies? | For **every** protocol, follow **Feature → Data flow → Why this technology → What can fail**. Tie the reason and failure behavior to what the code does. For TCP in particular, explain why the second client is eligible, why the byte stream needs a newline and what the TUI does after a disconnect. |
+| 3. Implementation & Verification | Use two sequence or annotated diagrams. Use the progress save and TCP update for one, and the chapter release through gRPC and UDP for the other. Include a compact table with setup, expected result and actual observation from normal, negative, failure and multi-client cases. Cite the test or command that reproduces each result. |
+| 4. Challenges, Reflection & Contributions | Explain a real defect through symptom, cause, fix and retest. Record known limits, An's and Vy's specific contributions, and three meaningful AI uses including a verification or review decision. The concurrent edit defect below has a reproducible failure and retest. |
+
+The results below describe An's tests. During the group rehearsal, record the client and server placement and actual observations from both devices. Use the real run for UDP delivery, catalog outage and recovery, and cross-device TCP and WebSocket verification.
+
+### Section 2 material for An's protocols
+
+- **HTTP** serves accounts and library operations. The TUI sends JSON to Gin, which verifies the JWT on protected routes and reads or writes SQLite. The request and response give the TUI an immediate status and the saved record. Invalid credentials return `401`, and chapter validation rejects invalid input before a write.
+- **TCP** keeps the second TUI's reading progress current. After SQLite commits, the backend sends the new chapter and version only to other sessions with the same verified account. A persistent connection lets the backend push progress when it changes. TCP carries bytes, so the newline separates JSON frames even when reads split or combine writes. On disconnect, the TUI reconnects and reloads the latest library over HTTP.
+- **WebSocket** carries room discussion. The authenticated TUI upgrades its HTTP connection, joins a room and sends JSON messages. The hub checks membership before delivering each message to that room. The two-way connection lets a user receive chat while typing. A send to an unjoined room returns an error, and a disconnected client is removed from the room hub.
+
 ## Code paths to explain
 
 1. `internal/backend/accounts/http.go` validates registration, hashes the password with bcrypt and saves it with a parameterized SQL statement. On login it checks the hash and calls `Tokens.Issue`. A signed JWT identifies both the account and this login session. HTTP, TCP and WebSocket all verify it before accepting protected work.
